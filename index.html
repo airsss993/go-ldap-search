@@ -331,6 +331,66 @@
             word-break: break-all;
         }
 
+        .group-members {
+            margin: 1rem 0;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 3px solid #28a745;
+        }
+
+        .group-members h4 {
+            margin-bottom: 0.75rem;
+            color: #28a745;
+            font-size: 1rem;
+        }
+
+        .members-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .member-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: white;
+            border-radius: 4px;
+            border: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .member-item:hover {
+            background: #f8f9fa;
+            border-color: #667eea;
+            transform: translateX(4px);
+        }
+
+        .member-icon {
+            flex-shrink: 0;
+        }
+
+        .member-dn {
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #495057;
+            word-break: break-all;
+            flex: 1;
+        }
+
+        .member-action {
+            font-size: 0.9rem;
+            opacity: 0.7;
+            transition: opacity 0.3s ease;
+        }
+
+        .member-item:hover .member-action {
+            opacity: 1;
+        }
+
         .pagination {
             display: flex;
             justify-content: center;
@@ -445,6 +505,66 @@
             font-size: 0.9rem;
         }
 
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.3rem;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 2rem;
+            cursor: pointer;
+            line-height: 1;
+            opacity: 0.8;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-close:hover {
+            opacity: 1;
+        }
+
+        .modal-body {
+            padding: 2rem;
+            overflow-y: auto;
+            flex: 1;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 1rem;
@@ -467,6 +587,15 @@
 
             .filters {
                 justify-content: center;
+            }
+
+            .modal-content {
+                width: 95%;
+                max-height: 90vh;
+            }
+
+            .modal-body {
+                padding: 1rem;
             }
         }
     </style>
@@ -497,6 +626,7 @@
                 <div class="ou-tab active" onclick="filterByOU('all')">All OUs</div>
                 <div class="ou-tab" onclick="filterByOU('people')">👥 People</div>
                 <div class="ou-tab" onclick="filterByOU('teachers')">👨‍🏫 Teachers</div>
+                <div class="ou-tab" onclick="filterByOU('groups')">🏢 Groups</div>
             </div>
         </div>
 
@@ -764,6 +894,7 @@
         function renderPersonCard(person) {
             const objectClass = person.attributes.objectClass || 'entry';
             const displayName = person.attributes.cn || person.attributes.name || 'Unknown';
+            const isGroup = person.ou === 'groups';
             
             return `
                 <div class="person-card" onclick="togglePersonDetails(this)">
@@ -773,6 +904,20 @@
                     </div>
                     <div class="person-attributes">
                         <strong>DN:</strong> ${person.dn}
+                        ${isGroup && person.members && person.members.length > 0 ? `
+                            <div class="group-members">
+                                <h4>👥 Члены группы (${person.members.length}):</h4>
+                                <div class="members-list">
+                                    ${person.members.map(member => `
+                                        <div class="member-item" onclick="event.stopPropagation(); showMemberDetails('${member}')">
+                                            <span class="member-icon">👤</span>
+                                            <span class="member-dn">${member}</span>
+                                            <span class="member-action">🔍</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
                         <div class="attribute-grid">
                             ${Object.entries(person.attributes)
                                 .filter(([key]) => key !== 'objectClass')
@@ -869,6 +1014,75 @@
                 ouPagination[ou].currentPage = 1;
             });
             renderResults();
+        }
+
+        function showMemberDetails(memberDN) {
+            // Ищем члена во всех OU
+            let foundMember = null;
+            
+            Object.values(allData).forEach(ouData => {
+                const member = ouData.people.find(person => person.dn === memberDN);
+                if (member) {
+                    foundMember = member;
+                }
+            });
+            
+            if (foundMember) {
+                // Создаем модальное окно для отображения информации о члене
+                showMemberModal(foundMember);
+            } else {
+                alert(`Информация о ${memberDN} не найдена в загруженных данных.`);
+            }
+        }
+
+        function showMemberModal(member) {
+            // Удаляем существующий модал, если есть
+            const existingModal = document.getElementById('memberModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+
+            const modal = document.createElement('div');
+            modal.id = 'memberModal';
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>👤 ${member.attributes.cn || member.attributes.name || 'Участник'}</h3>
+                        <span class="modal-close" onclick="closeMemberModal()">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <p><strong>DN:</strong> ${member.dn}</p>
+                        <p><strong>OU:</strong> ${member.ou}</p>
+                        <div class="attribute-grid">
+                            ${Object.entries(member.attributes)
+                                .filter(([key]) => key !== 'objectClass')
+                                .map(([key, value]) => `
+                                    <div class="attribute-item">
+                                        <div class="attribute-name">${key}</div>
+                                        <div class="attribute-value">${value}</div>
+                                    </div>
+                                `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Закрываем модал при клике вне его
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    closeMemberModal();
+                }
+            });
+        }
+
+        function closeMemberModal() {
+            const modal = document.getElementById('memberModal');
+            if (modal) {
+                modal.remove();
+            }
         }
 
         // Auto-load on page ready

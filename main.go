@@ -17,6 +17,7 @@ type Person struct {
 	DN         string            `json:"dn"`
 	Attributes map[string]string `json:"attributes"`
 	OU         string            `json:"ou"`
+	Members    []string          `json:"members,omitempty"`
 }
 
 type OUData struct {
@@ -50,6 +51,16 @@ func searchPeopleInOU(host string, port string, baseDN string, ouName string) ([
 		return nil, fmt.Errorf("bind error: %w", err)
 	}
 
+	// Выбираем фильтр в зависимости от OU
+	var filter string
+	switch ouName {
+	case "groups":
+
+		filter = "(|(objectClass=group)(objectClass=groupOfNames)(objectClass=posixGroup))"
+	default:
+		filter = "(objectClass=person)"
+	}
+
 	searchRequest := ldap.NewSearchRequest(
 		fmt.Sprintf("ou=%s,%s", ouName, baseDN),
 		ldap.ScopeWholeSubtree,
@@ -57,7 +68,7 @@ func searchPeopleInOU(host string, port string, baseDN string, ouName string) ([
 		0,
 		0,
 		false,
-		"(objectClass=person)",
+		filter,
 		[]string{"*"},
 		nil,
 	)
@@ -66,6 +77,8 @@ func searchPeopleInOU(host string, port string, baseDN string, ouName string) ([
 	if err != nil {
 		return nil, fmt.Errorf("search error in OU %s: %w", ouName, err)
 	}
+
+	fmt.Printf("Debug: OU %s found %d entries with filter %s\n", ouName, len(sr.Entries), filter)
 
 	people := make([]Person, len(sr.Entries))
 
@@ -78,7 +91,12 @@ func searchPeopleInOU(host string, port string, baseDN string, ouName string) ([
 
 		for _, attr := range entry.Attributes {
 			if len(attr.Values) > 0 && attr.Name != "dn" {
-				person.Attributes[attr.Name] = attr.Values[0]
+				// Для групп сохраняем членов отдельно
+				if (attr.Name == "member" || attr.Name == "memberUid") && ouName == "groups" {
+					person.Members = attr.Values
+				} else {
+					person.Attributes[attr.Name] = attr.Values[0]
+				}
 			}
 		}
 
@@ -89,8 +107,8 @@ func searchPeopleInOU(host string, port string, baseDN string, ouName string) ([
 }
 
 func searchAllOUs(host string, port string, baseDN string) (*SearchResponse, error) {
-	ous := []string{"people", "teachers"}
-	
+	ous := []string{"people", "teachers", "groups"}
+
 	response := &SearchResponse{
 		Total: 0,
 		OUs:   make(map[string]OUData),
