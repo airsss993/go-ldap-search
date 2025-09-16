@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LDAP Tree Structure Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .controls {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #555;
+        }
+
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e1e5e9;
+            border-radius: 4px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus, input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1rem;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 2rem;
+            border-radius: 4px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .tree-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            min-height: 400px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+
+        .loading::after {
+            content: "...";
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: "."; }
+            40% { content: ".."; }
+            60% { content: "..."; }
+            90%, 100% { content: ""; }
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 1rem;
+            border-radius: 4px;
+            border-left: 4px solid #c33;
+            margin-bottom: 1rem;
+        }
+
+        .tree {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .tree-node {
+            margin: 0.25rem 0;
+            padding: 0.5rem;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .tree-node:hover {
+            background-color: #f8f9fa;
+        }
+
+        .tree-node.expandable {
+            cursor: pointer;
+        }
+
+        .tree-node.expandable:hover {
+            background-color: #e9ecef;
+        }
+
+        .tree-toggle {
+            display: inline-block;
+            width: 1rem;
+            text-align: center;
+            margin-right: 0.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .tree-dn {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .tree-attributes {
+            margin-left: 1.5rem;
+            margin-top: 0.5rem;
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        .tree-attribute {
+            margin: 0.2rem 0;
+            padding: 0.2rem 0.5rem;
+            background: #f8f9fa;
+            border-radius: 3px;
+            border-left: 3px solid #667eea;
+        }
+
+        .tree-children {
+            margin-left: 2rem;
+            border-left: 2px solid #e9ecef;
+            padding-left: 1rem;
+        }
+
+        .stats {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>LDAP Tree Structure Viewer</h1>
+        <p>Explore your LDAP directory structure</p>
+    </div>
+
+    <div class="container">
+        <div class="controls">
+            <h3>Connection Settings</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="host">LDAP Host:</label>
+                    <input type="text" id="host" placeholder="localhost" value="localhost">
+                </div>
+                <div class="form-group">
+                    <label for="port">Port:</label>
+                    <input type="number" id="port" placeholder="389" value="389">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="baseDN">Base DN:</label>
+                <input type="text" id="baseDN" placeholder="dc=example,dc=com">
+            </div>
+            <button onclick="loadLDAPStructure()">Load LDAP Structure</button>
+        </div>
+
+        <div class="tree-container">
+            <div id="ldapTree">
+                <div class="loading">Connect to LDAP server to view structure</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ldapData = null;
+        let expandedNodes = new Set();
+
+        async function loadLDAPStructure() {
+            const host = document.getElementById('host').value;
+            const port = document.getElementById('port').value;
+            const baseDN = document.getElementById('baseDN').value;
+
+            if (!host || !port || !baseDN) {
+                showError('Please fill in all connection fields');
+                return;
+            }
+
+            const treeContainer = document.getElementById('ldapTree');
+            treeContainer.innerHTML = '<div class="loading">Loading LDAP structure</div>';
+
+            try {
+                const response = await fetch('http://localhost:8080/api/search');
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                ldapData = {
+                    entries: data.people.map(person => ({
+                        dn: person.dn,
+                        attributes: person.attributes
+                    }))
+                };
+                renderLDAPTree();
+
+            } catch (error) {
+                console.error('Error loading LDAP structure:', error);
+                showMockData();
+            }
+        }
+
+        function showMockData() {
+            ldapData = {
+                entries: [
+                    {
+                        dn: "dc=example,dc=com",
+                        attributes: {
+                            objectClass: ["top", "domain"],
+                            dc: ["example"]
+                        }
+                    },
+                    {
+                        dn: "ou=users,dc=example,dc=com",
+                        attributes: {
+                            objectClass: ["top", "organizationalUnit"],
+                            ou: ["users"]
+                        }
+                    },
+                    {
+                        dn: "cn=john.doe,ou=users,dc=example,dc=com",
+                        attributes: {
+                            objectClass: ["top", "person", "inetOrgPerson"],
+                            cn: ["john.doe"],
+                            sn: ["Doe"],
+                            givenName: ["John"],
+                            mail: ["john.doe@example.com"]
+                        }
+                    },
+                    {
+                        dn: "cn=jane.smith,ou=users,dc=example,dc=com",
+                        attributes: {
+                            objectClass: ["top", "person", "inetOrgPerson"],
+                            cn: ["jane.smith"],
+                            sn: ["Smith"],
+                            givenName: ["Jane"],
+                            mail: ["jane.smith@example.com"]
+                        }
+                    },
+                    {
+                        dn: "ou=groups,dc=example,dc=com",
+                        attributes: {
+                            objectClass: ["top", "organizationalUnit"],
+                            ou: ["groups"]
+                        }
+                    },
+                    {
+                        dn: "cn=admins,ou=groups,dc=example,dc=com",
+                        attributes: {
+                            objectClass: ["top", "groupOfNames"],
+                            cn: ["admins"],
+                            member: ["cn=john.doe,ou=users,dc=example,dc=com"]
+                        }
+                    }
+                ]
+            };
+            
+            showError('Could not connect to LDAP server. Showing mock data for demonstration.');
+            renderLDAPTree();
+        }
+
+        function renderLDAPTree() {
+            if (!ldapData || !ldapData.entries) {
+                showError('No LDAP data available');
+                return;
+            }
+
+            const tree = buildTree(ldapData.entries);
+            const treeContainer = document.getElementById('ldapTree');
+            
+            const stats = `
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-number">${ldapData.entries.length}</div>
+                        <div class="stat-label">Total Entries</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">${Object.keys(tree).length}</div>
+                        <div class="stat-label">Root Nodes</div>
+                    </div>
+                </div>
+            `;
+
+            treeContainer.innerHTML = stats + '<div class="tree">' + renderTreeNode(tree) + '</div>';
+        }
+
+        function buildTree(entries) {
+            const tree = {};
+            const entryMap = {};
+
+            entries.forEach(entry => {
+                entryMap[entry.dn] = entry;
+            });
+
+            entries.forEach(entry => {
+                const parts = entry.dn.split(',');
+                let currentLevel = tree;
+                let currentPath = '';
+
+                for (let i = parts.length - 1; i >= 0; i--) {
+                    const part = parts[i].trim();
+                    currentPath = currentPath ? part + ',' + currentPath : part;
+                    
+                    if (!currentLevel[part]) {
+                        currentLevel[part] = {
+                            entry: entryMap[currentPath],
+                            children: {}
+                        };
+                    }
+                    currentLevel = currentLevel[part].children;
+                }
+            });
+
+            return tree;
+        }
+
+        function renderTreeNode(node, level = 0) {
+            let html = '';
+            
+            for (const [key, value] of Object.entries(node)) {
+                const nodeId = value.entry ? value.entry.dn : key;
+                const hasChildren = Object.keys(value.children).length > 0;
+                const isExpanded = expandedNodes.has(nodeId);
+                
+                html += `<div class="tree-node ${hasChildren ? 'expandable' : ''}" data-dn="${nodeId}">`;
+                
+                if (hasChildren) {
+                    html += `<span class="tree-toggle" onclick="toggleNode('${nodeId}')">${isExpanded ? '−' : '+'}</span>`;
+                } else {
+                    html += `<span class="tree-toggle"></span>`;
+                }
+                
+                html += `<span class="tree-dn">${key}</span>`;
+                
+                if (value.entry && value.entry.attributes) {
+                    html += '<div class="tree-attributes">';
+                    for (const [attrName, attrValues] of Object.entries(value.entry.attributes)) {
+                        if (attrName !== 'objectClass') {
+                            const displayValue = Array.isArray(attrValues) ? attrValues[0] : attrValues;
+                            html += `<div class="tree-attribute">${attrName}: ${displayValue}</div>`;
+                        }
+                    }
+                    html += '</div>';
+                }
+                
+                if (hasChildren && isExpanded) {
+                    html += '<div class="tree-children">' + renderTreeNode(value.children, level + 1) + '</div>';
+                }
+                
+                html += '</div>';
+            }
+            
+            return html;
+        }
+
+        function toggleNode(nodeId) {
+            if (expandedNodes.has(nodeId)) {
+                expandedNodes.delete(nodeId);
+            } else {
+                expandedNodes.add(nodeId);
+            }
+            renderLDAPTree();
+        }
+
+        function showError(message) {
+            const treeContainer = document.getElementById('ldapTree');
+            const existingError = treeContainer.querySelector('.error');
+            if (existingError) {
+                existingError.remove();
+            }
+            
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            treeContainer.insertBefore(errorDiv, treeContainer.firstChild);
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('baseDN').value = 'dc=example,dc=com';
+        });
+    </script>
+</body>
+</html>

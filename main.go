@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -11,15 +13,26 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func searchPeopleInOU(host string, port string, DN string) error {
+type Person struct {
+	DN         string            `json:"dn"`
+	Attributes map[string]string `json:"attributes"`
+}
+
+type SearchResponse struct {
+	Total  int      `json:"total"`
+	People []Person `json:"people"`
+	Error  string   `json:"error,omitempty"`
+}
+
+func searchPeopleInOU(host string, port string, DN string) (*SearchResponse, error) {
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
-		return fmt.Errorf("invalid port format: %w", err)
+		return nil, fmt.Errorf("invalid port format: %w", err)
 	}
 
 	conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s:%v", host, portInt))
 	if err != nil {
-		return fmt.Errorf("connection error: %w", err)
+		return nil, fmt.Errorf("connection error: %w", err)
 	}
 	defer conn.Close()
 
@@ -27,7 +40,7 @@ func searchPeopleInOU(host string, port string, DN string) error {
 
 	err = conn.UnauthenticatedBind("")
 	if err != nil {
-		return fmt.Errorf("bind error: %w", err)
+		return nil, fmt.Errorf("bind error: %w", err)
 	}
 
 	searchRequest := ldap.NewSearchRequest(
@@ -44,35 +57,68 @@ func searchPeopleInOU(host string, port string, DN string) error {
 
 	sr, err := conn.Search(searchRequest)
 	if err != nil {
-		return fmt.Errorf("search error: %w", err)
+		return nil, fmt.Errorf("search error: %w", err)
 	}
 
-	totalPeople := len(sr.Entries)
-	fmt.Printf("=== Search results in %s ===\n", DN)
-	fmt.Printf("Total number of people: %d\n\n", totalPeople)
-
-	if totalPeople == 0 {
-		fmt.Println("No people found")
-		return nil
+	response := &SearchResponse{
+		Total:  len(sr.Entries),
+		People: make([]Person, len(sr.Entries)),
 	}
 
-	fmt.Printf("First 10 people:\n")
-	for i := 0; i < 10; i++ {
-		entry := sr.Entries[i]
-		fmt.Printf("\n%d. DN: %s\n", i+1, entry.DN)
+	for i, entry := range sr.Entries {
+		person := Person{
+			DN:         entry.DN,
+			Attributes: make(map[string]string),
+		}
 
 		for _, attr := range entry.Attributes {
 			if len(attr.Values) > 0 && attr.Name != "dn" {
-				fmt.Printf("   %s: %s\n", attr.Name, attr.Values[0])
+				person.Attributes[attr.Name] = attr.Values[0]
 			}
+		}
+
+		response.People[i] = person
+	}
+
+	return response, nil
+}
+
+func enableCORS(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
+func searchHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	host := os.Getenv("HOST")
+	port := os.Getenv("PORT")
+	DN := os.Getenv("DN")
+
+	response, err := searchPeopleInOU(host, port, DN)
+	if err != nil {
+		response = &SearchResponse{
+			Error: err.Error(),
 		}
 	}
 
-	if totalPeople > 10 {
-		fmt.Printf("\n... and %d more people\n", totalPeople-10)
-	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
 
-	return nil
+func staticHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "index.html")
 }
 
 func main() {
@@ -81,12 +127,10 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	host := os.Getenv("HOST")
-	port := os.Getenv("PORT")
-	DN := os.Getenv("DN")
+	http.HandleFunc("/", staticHandler)
+	http.HandleFunc("/api/search", searchHandler)
 
-	err = searchPeopleInOU(host, port, DN)
-	if err != nil {
-		fmt.Printf("error: %v\n", err)
-	}
+	port := ":8080"
+	fmt.Printf("Server starting on http://localhost%s\n", port)
+	log.Fatal(http.ListenAndServe(port, nil))
 }
