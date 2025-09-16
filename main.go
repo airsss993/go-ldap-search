@@ -16,15 +16,22 @@ import (
 type Person struct {
 	DN         string            `json:"dn"`
 	Attributes map[string]string `json:"attributes"`
+	OU         string            `json:"ou"`
+}
+
+type OUData struct {
+	Name   string   `json:"name"`
+	Total  int      `json:"total"`
+	People []Person `json:"people"`
 }
 
 type SearchResponse struct {
-	Total  int      `json:"total"`
-	People []Person `json:"people"`
-	Error  string   `json:"error,omitempty"`
+	Total int               `json:"total"`
+	OUs   map[string]OUData `json:"ous"`
+	Error string            `json:"error,omitempty"`
 }
 
-func searchPeopleInOU(host string, port string, DN string) (*SearchResponse, error) {
+func searchPeopleInOU(host string, port string, baseDN string, ouName string) ([]Person, error) {
 	portInt, err := strconv.Atoi(port)
 	if err != nil {
 		return nil, fmt.Errorf("invalid port format: %w", err)
@@ -44,7 +51,7 @@ func searchPeopleInOU(host string, port string, DN string) (*SearchResponse, err
 	}
 
 	searchRequest := ldap.NewSearchRequest(
-		DN,
+		fmt.Sprintf("ou=%s,%s", ouName, baseDN),
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		0,
@@ -57,17 +64,15 @@ func searchPeopleInOU(host string, port string, DN string) (*SearchResponse, err
 
 	sr, err := conn.Search(searchRequest)
 	if err != nil {
-		return nil, fmt.Errorf("search error: %w", err)
+		return nil, fmt.Errorf("search error in OU %s: %w", ouName, err)
 	}
 
-	response := &SearchResponse{
-		Total:  len(sr.Entries),
-		People: make([]Person, len(sr.Entries)),
-	}
+	people := make([]Person, len(sr.Entries))
 
 	for i, entry := range sr.Entries {
 		person := Person{
 			DN:         entry.DN,
+			OU:         ouName,
 			Attributes: make(map[string]string),
 		}
 
@@ -77,7 +82,33 @@ func searchPeopleInOU(host string, port string, DN string) (*SearchResponse, err
 			}
 		}
 
-		response.People[i] = person
+		people[i] = person
+	}
+
+	return people, nil
+}
+
+func searchAllOUs(host string, port string, baseDN string) (*SearchResponse, error) {
+	ous := []string{"people", "teachers"}
+	
+	response := &SearchResponse{
+		Total: 0,
+		OUs:   make(map[string]OUData),
+	}
+
+	for _, ouName := range ous {
+		people, err := searchPeopleInOU(host, port, baseDN, ouName)
+		if err != nil {
+			fmt.Printf("Warning: Could not search OU %s: %v\n", ouName, err)
+			continue
+		}
+
+		response.OUs[ouName] = OUData{
+			Name:   ouName,
+			Total:  len(people),
+			People: people,
+		}
+		response.Total += len(people)
 	}
 
 	return response, nil
@@ -104,9 +135,9 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 
 	host := os.Getenv("HOST")
 	port := os.Getenv("PORT")
-	DN := os.Getenv("DN")
+	baseDN := "dc=it-college,dc=ru"
 
-	response, err := searchPeopleInOU(host, port, DN)
+	response, err := searchAllOUs(host, port, baseDN)
 	if err != nil {
 		response = &SearchResponse{
 			Error: err.Error(),

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LDAP Tree Structure Viewer</title>
+    <title>LDAP Search & Browse</title>
     <style>
         * {
             margin: 0;
@@ -13,9 +13,10 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background-color: #f5f5f5;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             color: #333;
             line-height: 1.6;
+            min-height: 100vh;
         }
 
         .header {
@@ -23,12 +24,13 @@
             color: white;
             padding: 2rem 0;
             text-align: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
         }
 
         .header h1 {
             font-size: 2.5rem;
             margin-bottom: 0.5rem;
+            font-weight: 700;
         }
 
         .header p {
@@ -37,48 +39,377 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 2rem;
         }
 
         .controls {
             background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .controls h3 {
+            margin-bottom: 1.5rem;
+            color: #667eea;
+            font-size: 1.3rem;
+        }
+
+        .search-section {
+            background: white;
             padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             margin-bottom: 2rem;
         }
 
-        .form-group {
+        .search-box {
+            position: relative;
             margin-bottom: 1rem;
         }
 
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-            color: #555;
-        }
-
-        input[type="text"], input[type="number"] {
+        .search-input {
             width: 100%;
-            padding: 0.75rem;
+            padding: 1rem 1rem 1rem 3rem;
             border: 2px solid #e1e5e9;
-            border-radius: 4px;
+            border-radius: 8px;
             font-size: 1rem;
-            transition: border-color 0.3s;
+            transition: all 0.3s ease;
         }
 
-        input[type="text"]:focus, input[type="number"]:focus {
+        .search-input:focus {
             outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+        }
+
+        .filters {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-badge {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+
+        .filter-badge:hover, .filter-badge.active {
+            background: #667eea;
+            color: white;
             border-color: #667eea;
         }
 
-        .form-row {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
+        .stats-bar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
             gap: 1rem;
+        }
+
+        .ou-section {
+            margin-bottom: 2rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+
+        .ou-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .ou-header:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+        }
+
+        .ou-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .ou-stats {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .ou-count {
+            background: rgba(255,255,255,0.2);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        .ou-toggle {
+            font-size: 1.2rem;
+            transition: transform 0.3s ease;
+        }
+
+        .ou-section.collapsed .ou-toggle {
+            transform: rotate(-90deg);
+        }
+
+        .ou-content {
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .ou-section.collapsed .ou-content {
+            max-height: 0;
+        }
+
+        .ou-filter-tabs {
+            background: #f8f9fa;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .ou-tab {
+            background: white;
+            border: 1px solid #e9ecef;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .ou-tab:hover, .ou-tab.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .ou-empty {
+            padding: 3rem 2rem;
+            text-align: center;
+            color: #999;
+            font-style: italic;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 1.8rem;
+            font-weight: bold;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .results-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .results-header {
+            background: #f8f9fa;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .person-card {
+            border-bottom: 1px solid #f0f0f0;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .person-card:hover {
+            background: #f8f9fa;
+            transform: translateX(4px);
+        }
+
+        .person-card:last-child {
+            border-bottom: none;
+        }
+
+        .person-header {
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .person-dn {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 1.1rem;
+        }
+
+        .person-type {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .person-attributes {
+            padding: 0 2rem 1.5rem 2rem;
+            display: none;
+            background: #fafafa;
+        }
+
+        .person-card.expanded .person-attributes {
+            display: block;
+        }
+
+        .attribute-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .attribute-item {
+            background: white;
+            padding: 1rem;
+            border-radius: 6px;
+            border-left: 3px solid #667eea;
+        }
+
+        .attribute-name {
+            font-weight: 600;
+            color: #555;
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .attribute-value {
+            color: #333;
+            word-break: break-all;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+            gap: 0.5rem;
+        }
+
+        .pagination button {
+            background: white;
+            border: 1px solid #e9ecef;
+            color: #667eea;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: #667eea;
+            color: white;
+        }
+
+        .pagination button.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-info {
+            margin: 0 1rem;
+            color: #666;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #666;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fee;
+            color: #c53030;
+            padding: 1rem;
+            border-radius: 6px;
+            border-left: 3px solid #c53030;
+            margin: 1rem 0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: #666;
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
         }
 
         button {
@@ -86,13 +417,14 @@
             color: white;
             border: none;
             padding: 0.75rem 2rem;
-            border-radius: 4px;
+            border-radius: 8px;
             font-size: 1rem;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: all 0.3s ease;
+            font-weight: 500;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             transform: translateY(-2px);
             box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
@@ -101,178 +433,118 @@
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
-            box-shadow: none;
         }
 
-        .tree-container {
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            padding: 1.5rem;
-            min-height: 400px;
+        .view-toggle {
+            display: flex;
+            gap: 0.5rem;
         }
 
-        .loading {
-            text-align: center;
-            padding: 3rem;
-            color: #666;
-        }
-
-        .loading::after {
-            content: "...";
-            animation: dots 1.5s steps(5, end) infinite;
-        }
-
-        @keyframes dots {
-            0%, 20% { content: "."; }
-            40% { content: ".."; }
-            60% { content: "..."; }
-            90%, 100% { content: ""; }
-        }
-
-        .error {
-            background: #fee;
-            color: #c33;
-            padding: 1rem;
-            border-radius: 4px;
-            border-left: 4px solid #c33;
-            margin-bottom: 1rem;
-        }
-
-        .tree {
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        .view-toggle button {
+            padding: 0.5rem 1rem;
             font-size: 0.9rem;
         }
 
-        .tree-node {
-            margin: 0.25rem 0;
-            padding: 0.5rem;
-            border-radius: 4px;
-            transition: background-color 0.2s;
-        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .stats-bar {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .person-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            
+            .attribute-grid {
+                grid-template-columns: 1fr;
+            }
 
-        .tree-node:hover {
-            background-color: #f8f9fa;
-        }
-
-        .tree-node.expandable {
-            cursor: pointer;
-        }
-
-        .tree-node.expandable:hover {
-            background-color: #e9ecef;
-        }
-
-        .tree-toggle {
-            display: inline-block;
-            width: 1rem;
-            text-align: center;
-            margin-right: 0.5rem;
-            font-weight: bold;
-            color: #667eea;
-        }
-
-        .tree-dn {
-            font-weight: 600;
-            color: #2c3e50;
-        }
-
-        .tree-attributes {
-            margin-left: 1.5rem;
-            margin-top: 0.5rem;
-            color: #666;
-            font-size: 0.85rem;
-        }
-
-        .tree-attribute {
-            margin: 0.2rem 0;
-            padding: 0.2rem 0.5rem;
-            background: #f8f9fa;
-            border-radius: 3px;
-            border-left: 3px solid #667eea;
-        }
-
-        .tree-children {
-            margin-left: 2rem;
-            border-left: 2px solid #e9ecef;
-            padding-left: 1rem;
-        }
-
-        .stats {
-            background: #f8f9fa;
-            padding: 1rem;
-            border-radius: 4px;
-            margin-bottom: 1rem;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-        }
-
-        .stat-item {
-            text-align: center;
-        }
-
-        .stat-number {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #667eea;
-        }
-
-        .stat-label {
-            color: #666;
-            font-size: 0.9rem;
+            .filters {
+                justify-content: center;
+            }
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>LDAP Tree Structure Viewer</h1>
-        <p>Explore your LDAP directory structure</p>
+        <h1>LDAP Search & Browse</h1>
+        <p>Explore and search your LDAP directory with ease</p>
     </div>
 
     <div class="container">
         <div class="controls">
-            <h3>Connection Settings</h3>
-            <div class="form-row">
-                <div class="form-group">
-                    <label for="host">LDAP Host:</label>
-                    <input type="text" id="host" placeholder="localhost" value="localhost">
-                </div>
-                <div class="form-group">
-                    <label for="port">Port:</label>
-                    <input type="number" id="port" placeholder="389" value="389">
-                </div>
-            </div>
-            <div class="form-group">
-                <label for="baseDN">Base DN:</label>
-                <input type="text" id="baseDN" placeholder="dc=example,dc=com">
-            </div>
-            <button onclick="loadLDAPStructure()">Load LDAP Structure</button>
+            <h3>🔌 Connection Status</h3>
+            <button onclick="loadLDAPData()" id="loadBtn">Load LDAP Data</button>
         </div>
 
-        <div class="tree-container">
-            <div id="ldapTree">
-                <div class="loading">Connect to LDAP server to view structure</div>
+        <div class="search-section" id="searchSection" style="display: none;">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" 
+                       class="search-input" 
+                       id="searchInput" 
+                       placeholder="Search by DN, name, email, or any attribute..."
+                       oninput="filterResults()">
+            </div>
+            <div class="ou-filter-tabs">
+                <span>Show OUs:</span>
+                <div class="ou-tab active" onclick="filterByOU('all')">All OUs</div>
+                <div class="ou-tab" onclick="filterByOU('people')">👥 People</div>
+                <div class="ou-tab" onclick="filterByOU('teachers')">👨‍🏫 Teachers</div>
+            </div>
+        </div>
+
+        <div class="stats-bar" id="statsBar" style="display: none;">
+            <div class="stat-item">
+                <span class="stat-number" id="totalCount">0</span>
+                <span class="stat-label">Total Entries</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" id="ouCount">0</span>
+                <span class="stat-label">Organizational Units</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number" id="filteredCount">0</span>
+                <span class="stat-label">Visible</span>
+            </div>
+        </div>
+
+        <div class="results-container">
+            <div id="resultsContent">
+                <div class="loading">
+                    <div>🚀 Ready to explore your LDAP directory</div>
+                    <p>Click "Load LDAP Data" to get started</p>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        let ldapData = null;
-        let expandedNodes = new Set();
+        let allData = {};
+        let currentOUFilter = 'all';
+        let collapsedOUs = new Set();
+        let ouPagination = {}; // Store pagination state per OU
+        let itemsPerPage = 10;
 
-        async function loadLDAPStructure() {
-            const host = document.getElementById('host').value;
-            const port = document.getElementById('port').value;
-            const baseDN = document.getElementById('baseDN').value;
-
-            if (!host || !port || !baseDN) {
-                showError('Please fill in all connection fields');
-                return;
-            }
-
-            const treeContainer = document.getElementById('ldapTree');
-            treeContainer.innerHTML = '<div class="loading">Loading LDAP structure</div>';
+        async function loadLDAPData() {
+            const loadBtn = document.getElementById('loadBtn');
+            const resultsContent = document.getElementById('resultsContent');
+            
+            loadBtn.disabled = true;
+            loadBtn.textContent = 'Loading...';
+            
+            resultsContent.innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <div>Connecting to LDAP server...</div>
+                </div>
+            `;
 
             try {
                 const response = await fetch('http://localhost:8080/api/search');
@@ -287,197 +559,322 @@
                     throw new Error(data.error);
                 }
 
-                ldapData = {
-                    entries: data.people.map(person => ({
-                        dn: person.dn,
-                        attributes: person.attributes
-                    }))
-                };
-                renderLDAPTree();
+                allData = data.ous || {};
+                
+                // Initialize pagination for each OU
+                Object.keys(allData).forEach(ouName => {
+                    ouPagination[ouName] = { currentPage: 1 };
+                });
+                
+                document.getElementById('searchSection').style.display = 'block';
+                document.getElementById('statsBar').style.display = 'flex';
+                
+                updateStats();
+                renderResults();
+                
+                loadBtn.textContent = 'Reload Data';
 
             } catch (error) {
-                console.error('Error loading LDAP structure:', error);
-                showMockData();
+                console.error('Error loading LDAP data:', error);
+                resultsContent.innerHTML = `
+                    <div class="error">
+                        <strong>Error:</strong> ${error.message}
+                        <br><br>
+                        <small>Make sure your LDAP server is running and check your .env configuration.</small>
+                    </div>
+                `;
+            } finally {
+                loadBtn.disabled = false;
             }
         }
 
-        function showMockData() {
-            ldapData = {
-                entries: [
-                    {
-                        dn: "dc=example,dc=com",
-                        attributes: {
-                            objectClass: ["top", "domain"],
-                            dc: ["example"]
-                        }
-                    },
-                    {
-                        dn: "ou=users,dc=example,dc=com",
-                        attributes: {
-                            objectClass: ["top", "organizationalUnit"],
-                            ou: ["users"]
-                        }
-                    },
-                    {
-                        dn: "cn=john.doe,ou=users,dc=example,dc=com",
-                        attributes: {
-                            objectClass: ["top", "person", "inetOrgPerson"],
-                            cn: ["john.doe"],
-                            sn: ["Doe"],
-                            givenName: ["John"],
-                            mail: ["john.doe@example.com"]
-                        }
-                    },
-                    {
-                        dn: "cn=jane.smith,ou=users,dc=example,dc=com",
-                        attributes: {
-                            objectClass: ["top", "person", "inetOrgPerson"],
-                            cn: ["jane.smith"],
-                            sn: ["Smith"],
-                            givenName: ["Jane"],
-                            mail: ["jane.smith@example.com"]
-                        }
-                    },
-                    {
-                        dn: "ou=groups,dc=example,dc=com",
-                        attributes: {
-                            objectClass: ["top", "organizationalUnit"],
-                            ou: ["groups"]
-                        }
-                    },
-                    {
-                        dn: "cn=admins,ou=groups,dc=example,dc=com",
-                        attributes: {
-                            objectClass: ["top", "groupOfNames"],
-                            cn: ["admins"],
-                            member: ["cn=john.doe,ou=users,dc=example,dc=com"]
-                        }
-                    }
-                ]
-            };
-            
-            showError('Could not connect to LDAP server. Showing mock data for demonstration.');
-            renderLDAPTree();
+        function filterResults() {
+            renderResults();
         }
 
-        function renderLDAPTree() {
-            if (!ldapData || !ldapData.entries) {
-                showError('No LDAP data available');
+        function filterByOU(ouName) {
+            document.querySelectorAll('.ou-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            currentOUFilter = ouName;
+            renderResults();
+        }
+
+        function updateStats() {
+            const totalCount = Object.values(allData).reduce((sum, ou) => sum + ou.total, 0);
+            const ouCount = Object.keys(allData).length;
+            const visibleCount = getVisibleEntries().length;
+            
+            document.getElementById('totalCount').textContent = totalCount;
+            document.getElementById('ouCount').textContent = ouCount;
+            document.getElementById('filteredCount').textContent = visibleCount;
+        }
+
+        function getVisibleEntries() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            let entries = [];
+            
+            Object.entries(allData).forEach(([ouName, ouData]) => {
+                if (currentOUFilter !== 'all' && ouName !== currentOUFilter) {
+                    return;
+                }
+                
+                ouData.people.forEach(person => {
+                    if (!searchTerm) {
+                        entries.push(person);
+                        return;
+                    }
+                    
+                    const searchableText = [
+                        person.dn,
+                        ...Object.values(person.attributes)
+                    ].join(' ').toLowerCase();
+                    
+                    if (searchableText.includes(searchTerm)) {
+                        entries.push(person);
+                    }
+                });
+            });
+            
+            return entries;
+        }
+
+        function renderResults() {
+            const resultsContent = document.getElementById('resultsContent');
+            
+            if (Object.keys(allData).length === 0) {
+                resultsContent.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <h3>No LDAP data available</h3>
+                        <p>Load data to see organizational units and entries</p>
+                    </div>
+                `;
                 return;
             }
-
-            const tree = buildTree(ldapData.entries);
-            const treeContainer = document.getElementById('ldapTree');
             
-            const stats = `
-                <div class="stats">
-                    <div class="stat-item">
-                        <div class="stat-number">${ldapData.entries.length}</div>
-                        <div class="stat-label">Total Entries</div>
+            let html = '';
+            
+            Object.entries(allData).forEach(([ouName, ouData]) => {
+                if (currentOUFilter !== 'all' && ouName !== currentOUFilter) {
+                    return;
+                }
+                
+                const filteredPeople = getFilteredPeopleForOU(ouData.people);
+                const isCollapsed = collapsedOUs.has(ouName);
+                
+                // Get pagination data for this OU
+                const currentPage = ouPagination[ouName]?.currentPage || 1;
+                const startIndex = (currentPage - 1) * itemsPerPage;
+                const endIndex = startIndex + itemsPerPage;
+                const pageData = filteredPeople.slice(startIndex, endIndex);
+                const totalPages = Math.ceil(filteredPeople.length / itemsPerPage);
+                
+                html += `
+                    <div class="ou-section ${isCollapsed ? 'collapsed' : ''}">
+                        <div class="ou-header" onclick="toggleOU('${ouName}')">
+                            <div class="ou-title">
+                                ${getOUIcon(ouName)} ${getOUDisplayName(ouName)}
+                            </div>
+                            <div class="ou-stats">
+                                <div class="ou-count">${filteredPeople.length} entries</div>
+                                <div class="ou-toggle">▼</div>
+                            </div>
+                        </div>
+                        <div class="ou-content">
+                            ${filteredPeople.length > 0 ? `
+                                <div class="results-header">
+                                    <h4>📋 Entries</h4>
+                                    <div class="view-toggle">
+                                        <button onclick="changePageSize(5, '${ouName}')">5 per page</button>
+                                        <button onclick="changePageSize(10, '${ouName}')">10 per page</button>
+                                        <button onclick="changePageSize(25, '${ouName}')">25 per page</button>
+                                    </div>
+                                </div>
+                                ${pageData.map(person => renderPersonCard(person)).join('')}
+                                ${renderPagination(ouName, currentPage, totalPages, filteredPeople.length)}
+                            ` : '<div class="ou-empty">No entries found in this OU</div>'}
+                        </div>
                     </div>
-                    <div class="stat-item">
-                        <div class="stat-number">${Object.keys(tree).length}</div>
-                        <div class="stat-label">Root Nodes</div>
+                `;
+            });
+            
+            if (html === '') {
+                html = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔍</div>
+                        <h3>No results found</h3>
+                        <p>Try adjusting your search criteria or filters</p>
+                    </div>
+                `;
+            }
+            
+            resultsContent.innerHTML = html;
+            updateStats();
+        }
+
+        function getFilteredPeopleForOU(people) {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            
+            if (!searchTerm) return people;
+            
+            return people.filter(person => {
+                const searchableText = [
+                    person.dn,
+                    ...Object.values(person.attributes)
+                ].join(' ').toLowerCase();
+                
+                return searchableText.includes(searchTerm);
+            });
+        }
+
+        function getOUIcon(ouName) {
+            const icons = {
+                'people': '👥',
+                'teachers': '👨‍🏫',
+                'students': '🎓',
+                'staff': '👔',
+                'groups': '🏢'
+            };
+            return icons[ouName] || '📁';
+        }
+
+        function getOUDisplayName(ouName) {
+            const names = {
+                'people': 'People',
+                'teachers': 'Teachers',
+                'students': 'Students',
+                'staff': 'Staff',
+                'groups': 'Groups'
+            };
+            return names[ouName] || ouName.toUpperCase();
+        }
+
+        function toggleOU(ouName) {
+            if (collapsedOUs.has(ouName)) {
+                collapsedOUs.delete(ouName);
+            } else {
+                collapsedOUs.add(ouName);
+            }
+            renderResults();
+        }
+
+        function renderPersonCard(person) {
+            const objectClass = person.attributes.objectClass || 'entry';
+            const displayName = person.attributes.cn || person.attributes.name || 'Unknown';
+            
+            return `
+                <div class="person-card" onclick="togglePersonDetails(this)">
+                    <div class="person-header">
+                        <div class="person-dn">${displayName}</div>
+                        <div class="person-type">${getEntryType(objectClass)}</div>
+                    </div>
+                    <div class="person-attributes">
+                        <strong>DN:</strong> ${person.dn}
+                        <div class="attribute-grid">
+                            ${Object.entries(person.attributes)
+                                .filter(([key]) => key !== 'objectClass')
+                                .map(([key, value]) => `
+                                    <div class="attribute-item">
+                                        <div class="attribute-name">${key}</div>
+                                        <div class="attribute-value">${value}</div>
+                                    </div>
+                                `).join('')}
+                        </div>
                     </div>
                 </div>
             `;
-
-            treeContainer.innerHTML = stats + '<div class="tree">' + renderTreeNode(tree) + '</div>';
         }
 
-        function buildTree(entries) {
-            const tree = {};
-            const entryMap = {};
+        function getEntryType(objectClass) {
+            const oc = objectClass.toLowerCase();
+            if (oc.includes('person')) return '👤 Person';
+            if (oc.includes('group')) return '👥 Group';
+            if (oc.includes('organizationalunit')) return '🏢 Unit';
+            if (oc.includes('domain')) return '🌐 Domain';
+            return '📄 Entry';
+        }
 
-            entries.forEach(entry => {
-                entryMap[entry.dn] = entry;
-            });
+        function togglePersonDetails(element) {
+            element.classList.toggle('expanded');
+        }
 
-            entries.forEach(entry => {
-                const parts = entry.dn.split(',');
-                let currentLevel = tree;
-                let currentPath = '';
+        function renderPagination(ouName, currentPage, totalPages, totalItems) {
+            if (totalPages <= 1) return '';
+            
+            let paginationHTML = '<div class="pagination">';
+            
+            // Previous button
+            paginationHTML += `<button onclick="changePage('${ouName}', ${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>← Previous</button>`;
+            
+            // Page numbers
+            const startPage = Math.max(1, currentPage - 2);
+            const endPage = Math.min(totalPages, currentPage + 2);
+            
+            if (startPage > 1) {
+                paginationHTML += `<button onclick="changePage('${ouName}', 1)">1</button>`;
+                if (startPage > 2) {
+                    paginationHTML += '<span style="padding: 0.5rem;">...</span>';
+                }
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                paginationHTML += `<button onclick="changePage('${ouName}', ${i})" ${i === currentPage ? 'class="active"' : ''}>${i}</button>`;
+            }
+            
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    paginationHTML += '<span style="padding: 0.5rem;">...</span>';
+                }
+                paginationHTML += `<button onclick="changePage('${ouName}', ${totalPages})">${totalPages}</button>`;
+            }
+            
+            // Next button
+            paginationHTML += `<button onclick="changePage('${ouName}', ${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Next →</button>`;
+            
+            // Pagination info
+            const startIndex = (currentPage - 1) * itemsPerPage + 1;
+            const endIndex = Math.min(currentPage * itemsPerPage, totalItems);
+            paginationHTML += `<div class="pagination-info">Showing ${startIndex}-${endIndex} of ${totalItems}</div>`;
+            
+            paginationHTML += '</div>';
+            
+            return paginationHTML;
+        }
 
-                for (let i = parts.length - 1; i >= 0; i--) {
-                    const part = parts[i].trim();
-                    currentPath = currentPath ? part + ',' + currentPath : part;
-                    
-                    if (!currentLevel[part]) {
-                        currentLevel[part] = {
-                            entry: entryMap[currentPath],
-                            children: {}
-                        };
+        function changePage(ouName, page) {
+            const filteredPeople = getFilteredPeopleForOU(allData[ouName].people);
+            const totalPages = Math.ceil(filteredPeople.length / itemsPerPage);
+            
+            if (page >= 1 && page <= totalPages) {
+                ouPagination[ouName].currentPage = page;
+                renderResults();
+                
+                // Scroll to the OU section
+                setTimeout(() => {
+                    const ouSection = document.querySelector(`[onclick="toggleOU('${ouName}')"]`);
+                    if (ouSection) {
+                        ouSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
-                    currentLevel = currentLevel[part].children;
-                }
+                }, 100);
+            }
+        }
+
+        function changePageSize(size, ouName) {
+            itemsPerPage = size;
+            // Reset all OUs to page 1 when changing page size
+            Object.keys(ouPagination).forEach(ou => {
+                ouPagination[ou].currentPage = 1;
             });
-
-            return tree;
+            renderResults();
         }
 
-        function renderTreeNode(node, level = 0) {
-            let html = '';
-            
-            for (const [key, value] of Object.entries(node)) {
-                const nodeId = value.entry ? value.entry.dn : key;
-                const hasChildren = Object.keys(value.children).length > 0;
-                const isExpanded = expandedNodes.has(nodeId);
-                
-                html += `<div class="tree-node ${hasChildren ? 'expandable' : ''}" data-dn="${nodeId}">`;
-                
-                if (hasChildren) {
-                    html += `<span class="tree-toggle" onclick="toggleNode('${nodeId}')">${isExpanded ? '−' : '+'}</span>`;
-                } else {
-                    html += `<span class="tree-toggle"></span>`;
-                }
-                
-                html += `<span class="tree-dn">${key}</span>`;
-                
-                if (value.entry && value.entry.attributes) {
-                    html += '<div class="tree-attributes">';
-                    for (const [attrName, attrValues] of Object.entries(value.entry.attributes)) {
-                        if (attrName !== 'objectClass') {
-                            const displayValue = Array.isArray(attrValues) ? attrValues[0] : attrValues;
-                            html += `<div class="tree-attribute">${attrName}: ${displayValue}</div>`;
-                        }
-                    }
-                    html += '</div>';
-                }
-                
-                if (hasChildren && isExpanded) {
-                    html += '<div class="tree-children">' + renderTreeNode(value.children, level + 1) + '</div>';
-                }
-                
-                html += '</div>';
-            }
-            
-            return html;
-        }
-
-        function toggleNode(nodeId) {
-            if (expandedNodes.has(nodeId)) {
-                expandedNodes.delete(nodeId);
-            } else {
-                expandedNodes.add(nodeId);
-            }
-            renderLDAPTree();
-        }
-
-        function showError(message) {
-            const treeContainer = document.getElementById('ldapTree');
-            const existingError = treeContainer.querySelector('.error');
-            if (existingError) {
-                existingError.remove();
-            }
-            
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'error';
-            errorDiv.textContent = message;
-            treeContainer.insertBefore(errorDiv, treeContainer.firstChild);
-        }
-
+        // Auto-load on page ready
         document.addEventListener('DOMContentLoaded', function() {
-            document.getElementById('baseDN').value = 'dc=example,dc=com';
+            // Optionally auto-load data
+            // loadLDAPData();
         });
     </script>
 </body>
