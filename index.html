@@ -638,6 +638,19 @@
         <div class="controls">
             <h3>🔌 Connection Status</h3>
             <button onclick="loadLDAPData()" id="loadBtn">Load LDAP Data</button>
+
+            <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #e9ecef;">
+                <h3>🔍 Find User's Groups</h3>
+                <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                    <input type="text"
+                           id="uidSearchInput"
+                           placeholder="Enter user UID (e.g., student1)"
+                           style="flex: 1; padding: 0.75rem; border: 2px solid #e1e5e9; border-radius: 8px;"
+                           onkeypress="if(event.key === 'Enter') searchUserGroups()">
+                    <button onclick="searchUserGroups()">Find Groups</button>
+                </div>
+                <div id="userGroupsResult" style="margin-top: 1rem;"></div>
+            </div>
         </div>
 
         <div class="search-section" id="searchSection" style="display: none;">
@@ -1110,6 +1123,99 @@
             const modal = document.getElementById('memberModal');
             if (modal) {
                 modal.remove();
+            }
+        }
+
+        async function searchUserGroups() {
+            const uid = document.getElementById('uidSearchInput').value.trim();
+            const resultDiv = document.getElementById('userGroupsResult');
+
+            if (!uid) {
+                resultDiv.innerHTML = `
+                    <div class="error">Please enter a user UID</div>
+                `;
+                return;
+            }
+
+            resultDiv.innerHTML = `
+                <div class="loading">
+                    <div class="loading-spinner"></div>
+                    <div>Searching groups for user: ${uid}...</div>
+                </div>
+            `;
+
+            try {
+                const response = await fetch(`http://localhost:8080/api/user-groups?uid=${encodeURIComponent(uid)}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                if (data.total === 0) {
+                    resultDiv.innerHTML = `
+                        <div style="background: #fff3cd; color: #856404; padding: 1rem; border-radius: 6px; border-left: 3px solid #ffc107; margin-top: 1rem;">
+                            <strong>No groups found</strong><br>
+                            User <code>${uid}</code> is not a member of any groups.
+                        </div>
+                    `;
+                } else {
+                    let html = `
+                        <div style="background: #d4edda; color: #155724; padding: 1rem; border-radius: 6px; border-left: 3px solid #28a745; margin-top: 1rem; margin-bottom: 1rem;">
+                            <strong>Found ${data.total} group${data.total > 1 ? 's' : ''}</strong> for user <code>${uid}</code>
+                        </div>
+                        <div style="max-height: 400px; overflow-y: auto;">
+                    `;
+
+                    data.groups.forEach(group => {
+                        const groupName = group.attributes.cn || group.attributes.name || 'Unknown Group';
+                        const memberCount = group.members ? group.members.length : 0;
+
+                        html += `
+                            <div class="person-card" style="margin-bottom: 0.5rem;">
+                                <div class="person-header">
+                                    <div>
+                                        <div class="person-dn">${groupName}</div>
+                                        <small style="color: #666;">DN: ${group.dn}</small>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 1rem;">
+                                        <span style="background: #e3f2fd; color: #1976d2; padding: 0.25rem 0.75rem; border-radius: 12px; font-size: 0.85rem;">
+                                            👥 ${memberCount} members
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="person-attributes" style="display: block; padding: 1rem 2rem;">
+                                    ${group.attributes.description ? `<p><strong>Description:</strong> ${group.attributes.description}</p>` : ''}
+                                    ${group.attributes.mail ? `<p><strong>Email:</strong> ${group.attributes.mail}</p>` : ''}
+                                    <details style="margin-top: 0.5rem;">
+                                        <summary style="cursor: pointer; color: #667eea;">View all attributes</summary>
+                                        <div class="attribute-grid" style="margin-top: 0.5rem;">
+                                            ${Object.entries(group.attributes)
+                                                .filter(([key]) => key !== 'objectClass')
+                                                .map(([key, value]) => `
+                                                    <div class="attribute-item">
+                                                        <div class="attribute-name">${key}</div>
+                                                        <div class="attribute-value">${value}</div>
+                                                    </div>
+                                                `).join('')}
+                                        </div>
+                                    </details>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    html += '</div>';
+                    resultDiv.innerHTML = html;
+                }
+
+            } catch (error) {
+                console.error('Error searching user groups:', error);
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
             }
         }
 

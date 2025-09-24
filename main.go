@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
@@ -30,6 +31,13 @@ type SearchResponse struct {
 	Total int               `json:"total"`
 	OUs   map[string]OUData `json:"ous"`
 	Error string            `json:"error,omitempty"`
+}
+
+type UserGroupsResponse struct {
+	UID    string   `json:"uid"`
+	Groups []Person `json:"groups"`
+	Total  int      `json:"total"`
+	Error  string   `json:"error,omitempty"`
 }
 
 func searchPeopleInOU(host string, port string, baseDN string, ouName string) ([]Person, error) {
@@ -106,6 +114,114 @@ func searchPeopleInOU(host string, port string, baseDN string, ouName string) ([
 	return people, nil
 }
 
+func findUserGroups(host string, port string, baseDN string, uid string) (*UserGroupsResponse, error) {
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port format: %w", err)
+	}
+
+	conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s:%v", host, portInt))
+	if err != nil {
+		return nil, fmt.Errorf("connection error: %w", err)
+	}
+	defer conn.Close()
+
+	conn.SetTimeout(5 * time.Second)
+
+	err = conn.UnauthenticatedBind("")
+	if err != nil {
+		return nil, fmt.Errorf("bind error: %w", err)
+	}
+
+	// Поиск всех групп в OU groups
+	searchRequest := ldap.NewSearchRequest(
+		fmt.Sprintf("ou=groups,%s", baseDN),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		0,
+		0,
+		false,
+		"(|(objectClass=group)(objectClass=groupOfNames)(objectClass=posixGroup))",
+		[]string{"*"},
+		nil,
+	)
+
+	sr, err := conn.Search(searchRequest)
+	if err != nil {
+		return nil, fmt.Errorf("search error: %w", err)
+	}
+
+	response := &UserGroupsResponse{
+		UID:    uid,
+		Groups: []Person{},
+		Total:  0,
+	}
+
+	// Проверяем членство пользователя в каждой группе
+	for _, entry := range sr.Entries {
+		isMember := false
+
+		// Проверяем атрибут member (полный DN)
+		for _, attr := range entry.Attributes {
+			if attr.Name == "member" {
+				for _, memberDN := range attr.Values {
+					// Проверяем, содержит ли DN пользователя uid
+					if containsUID(memberDN, uid) {
+						isMember = true
+						break
+					}
+				}
+			}
+			// Проверяем атрибут memberUid (только uid)
+			if attr.Name == "memberUid" {
+				for _, memberUID := range attr.Values {
+					if memberUID == uid {
+						isMember = true
+						break
+					}
+				}
+			}
+		}
+
+		if isMember {
+			group := Person{
+				DN:         entry.DN,
+				OU:         "groups",
+				Attributes: make(map[string]string),
+			}
+
+			for _, attr := range entry.Attributes {
+				if len(attr.Values) > 0 && attr.Name != "dn" {
+					if attr.Name == "member" || attr.Name == "memberUid" {
+						group.Members = attr.Values
+					} else {
+						group.Attributes[attr.Name] = attr.Values[0]
+					}
+				}
+			}
+
+			response.Groups = append(response.Groups, group)
+			response.Total++
+		}
+	}
+
+	return response, nil
+}
+
+// Вспомогательная функция для проверки наличия uid в DN
+func containsUID(dn string, uid string) bool {
+	// Проверяем различные форматы DN
+	// Например: "uid=student1,ou=people,dc=it-college,dc=ru"
+	// или "cn=Student Name,ou=people,dc=it-college,dc=ru"
+
+	uidPattern := fmt.Sprintf("uid=%s,", uid)
+	cnPattern := fmt.Sprintf("cn=%s,", uid)
+
+	// Проверяем наличие uid= или cn= с данным значением
+	return strings.Contains(strings.ToLower(dn), strings.ToLower(uidPattern)) ||
+	       strings.Contains(strings.ToLower(dn), strings.ToLower(cnPattern))
+}
+
 func searchAllOUs(host string, port string, baseDN string) (*SearchResponse, error) {
 	ous := []string{"people", "teachers", "groups"}
 
@@ -166,6 +282,45 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+func userGroupsHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	uid := r.URL.Query().Get("uid")
+	if uid == "" {
+		response := &UserGroupsResponse{
+			Error: "uid parameter is required",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	host := os.Getenv("HOST")
+	port := os.Getenv("PORT")
+	baseDN := "dc=it-college,dc=ru"
+
+	response, err := findUserGroups(host, port, baseDN, uid)
+	if err != nil {
+		response = &UserGroupsResponse{
+			UID:   uid,
+			Error: err.Error(),
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 func staticHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "index.html")
 }
@@ -178,6 +333,7 @@ func main() {
 
 	http.HandleFunc("/", staticHandler)
 	http.HandleFunc("/api/search", searchHandler)
+	http.HandleFunc("/api/user-groups", userGroupsHandler)
 
 	port := ":8080"
 	fmt.Printf("Server starting on http://localhost%s\n", port)
